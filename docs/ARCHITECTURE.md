@@ -283,7 +283,7 @@ Primera milestone:
 
 Al implementar el flujo completo: persistencia atómica, fallo del clasificador sin registros parciales, resultado antes del feedback, confirmación completa, corrección parcial, escala 0–100, valor cero, conflictos concurrentes y reintentos sin duplicación. Verificar paginación y que Feedback no altera entidades originales ni el estado del dataset.
 
-Cada módulo documentará pruebas ejecutadas y limitaciones reales. No se ejecutan commits automáticamente; se proporciona mensaje con formato `tipo(scope): descripción breve`.
+Cada módulo documentará pruebas ejecutadas y limitaciones reales. Al finalizar cada tarea, se utilizará la skill `commit-work` para crear commits locales atómicos de los bloques previamente validados, con formato `tipo(scope): descripción breve`. No se realizará push. Se respetará `.gitignore`, sin agregar archivos ignorados de forma forzada salvo instrucción explícita del usuario. La política persistente y el catálogo están en `AGENTS.md` y `.agents/skills/README.md`.
 
 Verificación inicial del 2026-10-03: 51 tests backend aprobados sobre PostgreSQL real, lint/formato Python y lint/tipos/build frontend aprobados. Migración `0001_initial` aplicada sin diferencias contra metadata. Compose y healthchecks operativos; health 200/503/200 verificado con caída y recuperación de la base. Página inspeccionada en Chrome para escritorio y móvil. Los README registran comandos, resultados y el aviso pendiente de las herramientas de lint.
 
