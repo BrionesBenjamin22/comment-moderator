@@ -1,6 +1,6 @@
-﻿# Butchery Moderation Lab — Arquitectura del MVP
+# Butchery Moderation Lab — Arquitectura del MVP
 
-Estado: diseño previo a la implementación. Este documento define decisiones y contratos; no declara componentes como implementados.
+Estado: primera milestone implementada. Los flujos de comentarios describen el siguiente bloque; todavía no están implementados sus endpoints ni vistas.
 
 ## 1. Fuentes de verdad
 
@@ -114,12 +114,11 @@ UUID para identificadores; timestamps con zona horaria normalizados a UTC. Mater
 
 | Entidad | Datos | Restricciones |
 | --- | --- | --- |
-| Comment | `id`, `text`, `subject?`, `teacher?`, `language`, `createdAt` | Inmutable desde su persistencia; sin `updatedAt` ni operaciones de edición o eliminación. |
+| Comment | `id`, `text`, `subject?`, `teacher?`, `language`, `createdAt`, `datasetStatus` | Estado inicial `PENDING`; inmutable desde su persistencia; sin `updatedAt` ni operaciones de edición o eliminación. |
 | Classification | `id`, `commentId`, ocho dimensiones v0.1, métricas opcionales, `classifierVersion`, `modelVersion`, `processingTimeMs`, `classifiedAt` | `commentId` único y FK a Comment; inmutable. |
-| Feedback | `id`, `commentId`, `acceptedFully`, `disputedDimensions`, `corrections`, `humanIntensities`, `clarification?`, `feedbackAt` | `commentId` único y FK a Comment; append-only. La clasificación vinculada se obtiene por la relación única del comentario. |
-| DatasetEntry | `commentId`, `status`, `createdAt` | `commentId` único y FK a Comment; estado inicial `PENDING`, separado del contenido y del feedback. |
+| Feedback | `id`, `commentId`, `acceptedFully`, `disputedDimensions`, `corrections`, `humanIntensities`, `clarification?`, `feedbackAt` | `commentId` único; FK a `Classification.commentId`, que referencia Comment. Impide feedback sin clasificación; append-only. |
 
-DatasetEntry permite mantener un estado de curación independiente sin modificar Comment. `PENDING`, `VERIFIED` y `REJECTED` no representan publicación, feedback ni validez automática. El MVP no expone transiciones de curación. Una futura revisión deberá registrar decisión, motivo y timestamp en un historial separado sin alterar Comment, Classification o Feedback.
+`datasetStatus` se almacena directamente en Comment por simplicidad del MVP. `PENDING`, `VERIFIED` y `REJECTED` conservan semántica independiente: no representan publicación, feedback ni validez automática. No existe DatasetEntry ni operaciones de curación. La futura curación podrá extraer esta responsabilidad a una entidad e historial separados sin cambiar su semántica. Mientras tanto Comment, incluido este campo, permanece inmutable.
 
 La inmutabilidad se aplica en servicios y persistencia: no se ofrecen operaciones de actualización o borrado de estas tres entidades. La credencial de ejecución de la API tendrá permisos de lectura e inserción sobre sus tablas; las migraciones utilizarán otra credencial con permisos de esquema. No se habilitará borrado en cascada que destruya registros originales.
 
@@ -189,14 +188,14 @@ persistir Feedback
 
 1. Frontend envía texto y contexto opcional; API valida el payload.
 2. Classifier devuelve salida tipada y validada, incluida R01.
-3. Una transacción inserta Comment, Classification y DatasetEntry en `PENDING`.
+3. Una transacción inserta Comment con `datasetStatus = PENDING` y Classification.
 4. Solo después del commit se devuelve el resultado. Ante fallo de clasificación o persistencia no queda un comentario parcial.
 5. Frontend presenta el resultado en lectura antes de habilitar confirmación o corrección.
 6. El envío explícito crea Feedback en otra transacción y muestra confirmación visible.
 
 No se mantiene una transacción abierta durante el análisis. El flujo permanece en la misma pantalla conforme a UX; las reglas generales de navegación tras altas o edición no agregan redirecciones intermedias aquí.
 
-Según el flujo funcional, la lista pública muestra contribuciones completadas, es decir, comentarios con Feedback. Se consulta su existencia sin estado de publicación en Comment ni filtro por DatasetEntry.status. El detalle por ID permite consultar también el resultado pendiente de feedback para el flujo original; no constituye un recurso privado.
+Según el flujo funcional, la lista pública muestra contribuciones completadas, es decir, comentarios con Feedback. Se consulta su existencia sin estado de publicación en Comment ni filtro por Comment.datasetStatus. El detalle por ID permite consultar también el resultado pendiente de feedback para el flujo original; no constituye un recurso privado.
 
 ## 9. API prevista
 
@@ -206,7 +205,7 @@ Solo `/health` se implementa en la primera milestone; los demás contratos orien
 | --- | --- | --- |
 | `POST /api/comments/analyze` | `{text, subject?, teacher?}` | `201`, `{comment, classification}` tras persistencia; no acepta resultados o estado del dataset del cliente. |
 | `POST /api/comments/{id}/feedback` | Payload de sección 7 | `201`, Feedback creado; `404` si falta Comment; `409` si ya existe Feedback; `422` ante payload inválido. |
-| `GET /api/comments` | `page`, `pageSize`, positivos, máximo 9 | `200`, `{items, page, pageSize, total}`; contribuciones completadas, orden `createdAt DESC, id DESC`. |
+| `GET /api/comments` | `page`, `pageSize`, positivos; backend configurable, default 12 y máximo 50 | `200`, `{items, page, pageSize, total}`; contribuciones completadas, orden `createdAt DESC, id DESC`. |
 | `GET /api/comments/{id}` | UUID | `200`, `{comment, classification, feedback, datasetStatus}`; `feedback` puede ser `null`; `404` si no existe. |
 | `GET /health` | Sin payload | `200`, `{"status":"ok","database":"ok"}` tras `SELECT 1`; `503`, `{"status":"unavailable","database":"unavailable"}` ante fallo. |
 
@@ -250,7 +249,7 @@ No se agregan permisos por rol ni soft delete por convenciones generales que no 
 
 Compose incluye `frontend`, `backend`, `db` y un proceso de migración de una sola ejecución. PostgreSQL usa volumen nombrado y `pg_isready`. Las migraciones esperan la base disponible; backend arranca después de su finalización exitosa. Alembic no se sustituye por `create_all` ni se ejecuta desde cada worker.
 
-Puertos locales: 3000 frontend, 8000 backend y 5432 PostgreSQL, sobre loopback. Health comprueba conexión; migraciones se verifican aparte. README documentará arranque, migraciones y tests sin borrado automático de volúmenes.
+Puertos locales: 3000 frontend, 8000 backend y PostgreSQL configurable mediante `POSTGRES_PORT`, sobre loopback. Compose usa 5432 por defecto; `.env.example` propone 55432 porque Windows bloqueó 5432 en la verificación local. PostgreSQL conserva 5432 dentro de Docker. Health comprueba conexión; migraciones se verifican aparte. Los README documentan arranque, migraciones y tests sin borrado automático de volúmenes.
 
 SQLAlchemy síncrono con psycopg y unidad de trabajo por operación de persistencia, fuera del event loop. La llamada asíncrona al clasificador ocurre antes de abrir la transacción. Versiones concretas se fijan y validan al implementar.
 
@@ -264,6 +263,11 @@ SQLAlchemy síncrono con psycopg y unidad de trabajo por operación de persisten
 | `DB_CONNECT_TIMEOUT_SECONDS` | Tiempo máximo de conexión. |
 | `CLASSIFIER_BACKEND` | `fake`; valores no implementados fallan explícitamente. |
 | `NEXT_PUBLIC_API_BASE_URL` | URL pública de API, sin secretos. |
+| `COMMENTS_PAGE_SIZE_DEFAULT`, `COMMENTS_PAGE_SIZE_MAX` | Límites backend configurables; 12 y 50 por defecto. |
+| `DB_APP_PASSWORD` | Credencial de ejecución PostgreSQL usada por la provisión local. |
+| `POSTGRES_PORT` | Puerto PostgreSQL del host; no altera la conexión interna de Compose. |
+
+La cantidad de elementos mostrados pertenece al frontend. Los límites de paginación están configurados para el próximo flujo; todavía no existe endpoint de listado.
 
 Arranque y configuración compatibles con CI/CD futuro, proxy reverso y despliegue cloud, sin infraestructura distribuida adicional.
 
@@ -280,6 +284,8 @@ Primera milestone:
 Al implementar el flujo completo: persistencia atómica, fallo del clasificador sin registros parciales, resultado antes del feedback, confirmación completa, corrección parcial, escala 0–100, valor cero, conflictos concurrentes y reintentos sin duplicación. Verificar paginación y que Feedback no altera entidades originales ni el estado del dataset.
 
 Cada módulo documentará pruebas ejecutadas y limitaciones reales. No se ejecutan commits automáticamente; se proporciona mensaje con formato `tipo(scope): descripción breve`.
+
+Verificación inicial del 2026-10-03: 51 tests backend aprobados sobre PostgreSQL real, lint/formato Python y lint/tipos/build frontend aprobados. Migración `0001_initial` aplicada sin diferencias contra metadata. Compose y healthchecks operativos; health 200/503/200 verificado con caída y recuperación de la base. Página inspeccionada en Chrome para escritorio y móvil. Los README registran comandos, resultados y el aviso pendiente de las herramientas de lint.
 
 ## 15. Contradicciones técnicas pendientes
 
