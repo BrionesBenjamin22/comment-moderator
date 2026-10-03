@@ -1,0 +1,28 @@
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Dependencias y artefactos locales
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+.npm-cache/
+.verification/
+*.log
+
+# Estado e infraestructura local
+.terraform/
+*.tfstate
+*.tfstate.*
